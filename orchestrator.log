@@ -1,0 +1,91 @@
+nohup: ignoring input
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.030,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_0', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593648
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.025,SCALAR_LR=0.025,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_1', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593649
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.025,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_2', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593650
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.025,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_3', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593651
+Job 38593648 completed with status FAILED (No End Log) bpb None
+Job 38593649 completed with status FAILED (No End Log) bpb None
+Job 38593650 completed with status FAILED (No End Log) bpb None
+Job 38593651 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.025,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_4', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593745
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.035,SCALAR_LR=0.025,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_5', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593746
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.030,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_6', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593747
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.025,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_7', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593748
+Job 38593745 completed with status FAILED (No End Log) bpb None
+Job 38593746 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.035,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_8', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593841
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.025,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_9', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593843
+Job 38593747 completed with status FAILED (No End Log) bpb None
+Job 38593748 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.030,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_10', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593923
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.035,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_11', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593925
+Job 38593841 completed with status FAILED (No End Log) bpb None
+Job 38593843 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.035,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_12', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593966
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.025,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_13', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38593967
+Job 38593923 completed with status FAILED (No End Log) bpb None
+Job 38593925 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.035,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_14', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594031
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.030,SCALAR_LR=0.025,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_15', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594032
+Job 38593966 completed with status FAILED (No End Log) bpb None
+Job 38593967 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.025,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_16', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594060
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.030,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_17', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594061
+Job 38594031 completed with status FAILED (No End Log) bpb None
+Job 38594032 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.035,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_18', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594133
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.030,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_19', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594134
+Job 38594060 completed with status FAILED (No End Log) bpb None
+Job 38594061 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.025,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_20', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594178
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.025,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_21', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594179
+Job 38594133 completed with status FAILED (No End Log) bpb None
+Job 38594134 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.035,SCALAR_LR=0.025,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_22', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594266
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.030,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_23', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594267
+Job 38594178 completed with status FAILED (No End Log) bpb None
+Job 38594179 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.030,SCALAR_LR=0.030,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_24', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594378
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.035,SCALAR_LR=0.030,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_25', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594379
+Job 38594266 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.035,SCALAR_LR=0.025,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_26', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594435
+Job 38594267 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=5,MATRIX_LR=0.025,SCALAR_LR=0.025,TIED_EMBED_LR=0.045,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_27', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594482
+Job 38594378 completed with status FAILED (No End Log) bpb None
+Job 38594379 completed with status FAILED (No End Log) bpb None
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=4,MATRIX_LR=0.030,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_28', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594544
+Submitting: ['sbatch', '--export=ALL,NUM_PROJECTIONS=3,MATRIX_LR=0.035,SCALAR_LR=0.025,TIED_EMBED_LR=0.035,TRAIN_SCRIPT=train_gpt_skips_agents.py,RUN_ID=skips_29', 'scripts/train_4xA100.sh']
+-> Submitted Job ID: 38594545
+Job 38594435 completed with status FAILED (No End Log) bpb None
+Job 38594482 completed with status FAILED (No End Log) bpb None
+Job 38594544 completed with status FAILED (No End Log) bpb None
+Job 38594545 completed with status FAILED (No End Log) bpb None
