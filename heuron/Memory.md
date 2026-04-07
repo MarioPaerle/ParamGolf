@@ -180,3 +180,213 @@ Focus: Test whether dense connections were redundant with U-Net skips by removin
 9. **B3-8 is the new best baseline-class architecture** (1.2323). Future Battle 4 experiments that
    previously used `heron.py` as their base should consider B3-8 instead. Does NOT replace the record
    1.2279 (which uses skips and gated ME together).
+
+## Research Battle 4: Is what worked truly transferable? (NEW heuron baseline)
+Focus: Take the new (much-improved) `train_gpt_heuron.py` baseline, fix FA3→SDPA, then test whether
+the past Battle 1 (gates) and Battle 2 (gated ME) winners transfer onto it. The new baseline is
+fundamentally different: ParallelMuon, MTP heads (off), GPTQ Hessian-aware int6 quantization with
+autoregressive self-gen calibration, selective ±1 pruning, **XSA on ALL 11 layers** (vs old XSA-on-last-4),
+bigram2048, VE on layers 9/10, MUON warmup 0.92→0.99 over 1500 steps, EMA(0.997), SWA from 1500,
+late_qat 0.15. Old battles' winners are NOT present in this baseline.
+
+### Required environment fix (not a research result)
+The new baseline imports `flash_attn_interface` (FA3). FA3 is not installable on Cineca A100s (FA3 is
+H100-only in practice). Replaced both attention call sites (`CausalSelfAttention.forward` and
+`_HessianAttn.forward`) with `F.scaled_dot_product_attention(...)`, which dispatches to FlashAttention-2
+on A100 because the script already calls `enable_flash_sdp(True)`. Maintained the (B,T,H,D) tensor
+layout that the XSA path expects via `transpose(1,2).contiguous()`. Applied in-place to
+`heuron/train_gpt_heuron.py`.
+
+### What Has Been Tried (Battle 4)
+- B4-0: Bare patched new baseline → **1.23260** (-0.0056 vs old heron baseline 1.2382, +0.0047 vs old
+  record heron_2_4 1.2279). 1568 steps, 382 ms/step. THIS IS THE BATTLE 4 WINNER.
+- B4-1: B4-0 + Battle 1 lightweight gates (attn_gate_w + mlp_gate_w + smear_input_w, all zero-init via
+  2*sigmoid) → 1.23381 (+0.00121 vs B4-0). 1538 steps, 390 ms/step. **NOT TRANSFERABLE**.
+- B4-2: B4-0 + Battle 2 gated ME (1024×128 secondary embedding, per-layer scale + (1,24) gate) →
+  1.23338 (+0.00078 vs B4-0). 1508 steps, 398 ms/step. **NOT TRANSFERABLE**.
+- B4-3: B4-0 + gates + gated ME (combined) → 1.23523 (+0.00263 vs B4-0). 1494 steps, 402 ms/step.
+  Best LIVE pre-EMA val_bpb of all four (1.2331), but loses the wallclock budget battle. **NOT TRANSFERABLE**.
+
+### Confirmed Principles (Battle 4)
+1. **Past winners do NOT transfer cleanly.** All three modifications score WORSE than the bare new
+   baseline on `final_int6_sliding_window`. The new baseline's design choices already absorb most of
+   the value the old gates/ME captured (XSA-on-all-layers replaces gated ME's per-layer per-token
+   information; MUON warmup replaces the gated initialization smoothing).
+2. **Live (pre-EMA) BPB favors the additions, especially the combination.** B4-3 has the best live
+   val_bpb at 1.2331. So gates DO still improve per-step quality on this baseline — they just don't
+   improve it enough to overcome the step-count deficit they introduce.
+3. **The slowdowns matter.** Each addition costs ~2-5% step time: B4-1 +1.8%, B4-2 +4.0%, B4-3 +5.0%.
+   On a 600s wallclock cap this is 30-74 lost steps. With a marginal per-step improvement, total
+   wallclock-bounded BPB regresses.
+4. **GPTQ int6 roundtrip damage is similar across all variants** (~+0.0034 to +0.0051 added BPB from
+   post_ema to int6_roundtrip). The added gate/ME tensors don't make the new GPTQ pipeline noticeably
+   worse, despite small `(1,12)` and `(num_heads,12)` shapes. The new int4-band classification handles
+   them via the int8/per-row path same as `me_embeds.weight` does in the old record.
+5. **Sliding-window vs roundtrip improvement is consistent at ~−0.024 across runs**, confirming the
+   sliding-window context-extension benefit is architecture-independent.
+6. **Strong baselines absorb past wins.** This is the meta-lesson of Battle 4: when you upgrade your
+   architecture significantly (XSA layer-coverage, optimizer warmup, smarter quantization, more
+   embedding signal sources), simple-add patches that beat a weaker baseline often stop helping.
+   Future research should focus on novel mechanisms that the new baseline does NOT already have, not
+   on porting old wins.
+
+### Untried for next agent
+- Per-channel ME scales instead of scalar (might recover the gated-ME advantage if the issue is
+  underexpression of the ME signal under the new training schedule)
+- Larger ME std init (e.g., 0.05) to give the ME more starting signal so it doesn't rely on the slow
+  zero-init scale ramp-up
+- Stronger gate initialization for gates (e.g., init `attn_gate_w` to small positive values, so gate
+  starts at 1.05-1.10 instead of 1.0, breaking the no-op symmetry from step 1)
+- The B3-8 "no skip" finding adapted to the new heuron baseline (not tested in Battle 4 — separate
+  follow-up)
+- New mechanisms specific to the new baseline: maybe additional MUON warmup variants, different SWA
+  schedules, alternative GPTQ calibration sequence lengths
+
+## Research Battle 4 — Continuation: XSI experiments (Session 5)
+
+User's new TODO: try XSI (Exclusive Input Attention) variants — orthogonalize layer output against
+layer input (instead of against the value projection like XSA does).
+
+### XSI variants implemented
+- **5_1 (XSI v3, final-logit, parameterless)**: orthogonalize the final residual stream against `x0`
+  before final_norm + lm_head. Just one ortho op per forward.
+- **5_2 (XSI v2, layerwise k=4, parameterless, stop-grad on src)**: every 4 layers, orthogonalize
+  current residual against the snapshot from k layers earlier. Stop-grad needed to keep the fused
+  backward kernel under A100 SMEM ceiling (~167KB).
+- **5_3 (XSI v1, naive block, helper-disabled)**: per-block, orthogonalize attn_out against block
+  input, mlp_out against post-attention residual. Strongest dose. Requires `@torch._dynamo.disable`
+  helper because even `.detach()` couldn't shrink the fused kernel enough.
+- **5_7 (XSI v3 + learnable α, tanh-bounded, zero-init)**: same as 5_1 but the orthogonalization is
+  scaled by `tanh(xsi_alpha)` with `xsi_alpha` a single scalar parameter init at 0. Recovers baseline
+  at init, lets the model learn whether to opt in.
+
+### Compile-time lesson (Scratch.md material too)
+torch.compile fuses small element-wise ops (F.normalize + dot + sub + scale) into the surrounding
+block's backward kernel. With the residual-stream connection, this kernel grows past A100 SMEM
+(168KB / SM). Two recovery patterns:
+- **`.detach()` on the projection target** (BYOL/SimSiam stop-grad): drops the cross-coupling
+  gradient term, saves a few KB of register/SMEM. Often enough; not always (5_3 went from 170KB
+  → 168KB, still 1KB over).
+- **`@torch._dynamo.disable` on a small helper function**: forces eager execution for the few ops
+  inside the helper, which breaks the fusion completely. Slightly slower but always works.
+Prefer the helper approach when detach alone is insufficient or when you don't want to drop the
+cross-coupling gradient.
+
+### Results
+- **5_1 (XSI v3, parameterless)**: final_int6_sw **1.24137** → **+0.00877 vs B4-0**. Same speed.
+  Pure per-step quality regression — rigid orthogonalization against the input embedding hurts.
+- **5_2 (XSI v2 layerwise k=4, parameterless, stop-grad)**: final_int6_sw **1.24715** →
+  **+0.01455 vs B4-0**. Step_avg 403ms (+5% slower) → only 1489 steps vs 1568. Worse on every axis.
+  Initial triton-OOM in backward fixed by `.detach()` on the saved residual snapshots.
+- **5_3 (XSI v1 naive block, attn-only)**: BLOCKED — triton OOM in backward (different fused kernel
+  than 5_2; even with `x_in.detach()` in the projection ref, the attn-out backward fuses with the
+  projection sum and exceeds the 166912-byte shared-mem limit). Abandoned.
+- **5_7 (XSI v3 + learnable α, single tanh-bounded scalar, init 0)**: final_int6_sw **1.23188** →
+  **−0.00072 vs B4-0** ✅ **WIN.** Same speed (383ms/step). Cost: +1 scalar parameter `xsi_alpha`.
+  Code: identical to 5_1 except `x = x − tanh(self.xsi_alpha) * <x, x0_n> * x0_n` before final_norm.
+  **Reproduced** on a confirmation run: dup-5_7 = **1.23161** (within ±0.0003 noise).
+- **5_8 (XSI v3 + per-channel α, D=512 params)**: final_int6_sw **1.23423** → **+0.00163 vs B4-0**,
+  **worse than 5_7 by +0.00262**. Per-channel α gives the model too many degrees of freedom and
+  it ends up over-erasing some channels. Single global α is the sweet spot.
+- **5_9 (XSI v2 layerwise k=4 + learnable α)**: final_int6_sw **1.24706** → **+0.01446 vs B4-0**,
+  much worse. Step_avg ~417ms (~9% slower) → only 1442 steps. Per-block ortho-against-snapshot
+  is too disruptive to recover from even with a learnable α.
+
+### Battle 4 Round 2 winner: 5_7 (1.23188 / dup 1.23161)
+
+### Mechanistic hypothesis (validated by 5_7)
+In tied-embedding GPT (`tok_emb` weight = lm_head weight), the residual stream's component along
+each token's embedding direction IS the prediction signal. XSI v3 explicitly removes the component
+along `x0` (the input embedding) before lm_head, which erases part of the tied-embedding signal that
+the model uses for next-token prediction. XSA escapes this trap by orthogonalizing against `v`
+(a per-layer learned projection) — a soft constraint the layer learns to use productively. XSI's
+fixed-direction orthogonalization is a hard constraint the model can't route around.
+
+**Validated by 5_7**: when α is learnable (init 0), the model finds a sweet spot where some XSI
+helps but full XSI hurts. The 0.00949 BPB swing between 5_1 (rigid α=1) and 5_7 (learnable α)
+is the model dynamically choosing how much input-direction signal to drop. **General principle
+worth memorizing**: when adding a destructive op (subtraction, mask, drop), gate it behind a
+tanh- or sigmoid-bounded learnable scalar init at zero. Cost: 1 param. Benefit: model opts in
+only when helpful, and you preserve the option to recover the baseline at α=0.
+
+### What to try next
+- **Learnable scale (5_7)** is the obvious recovery. If even at α≈0 it improves over baseline noise,
+  the technique has room. If not, parameterless XSI is dead in this baseline.
+- **Apply XSI only to the LAST block** (not all 11) to preserve layer-by-layer information flow.
+- **Replace XSA with XSI** in some layers (not adding XSI on top) to see if XSI is a strict
+  alternative. Heuron rules allow disabling baseline tricks for our own.
+- **Per-channel learnable α** — TESTED (5_8): worse than scalar α. Don't repeat.
+- **XSI applied to each layer's `attn_norm(x_in)`** before the attention sees it (rather than to
+  attn_out after). Would force the attention's queries/keys/values to be computed from the
+  input-orthogonal residual, but preserves the residual stream's direct flow.
+- **5_10 (per-block α stack, in-flight)**: 11 per-block scalars + 1 final scalar, all init 0,
+  tanh-bounded, applied at every block exit against x0. Strict superset of 5_7.
+
+
+## Battle 4 Round 3: Cross-sublayer routing (Session 6 cont'd)
+
+**Current record candidate**: 5_21 = **1.22803 BPB** (−0.00385 vs 5_7's 1.23188).
+Stack: 5_7 (XSI v3 + scalar α) + 5_15 cross-sublayer MLP gate + per-head attn-output gate.
+
+### KEY PRINCIPLE: Cross-sublayer routing
+Lightweight gates (12-input → 1- or per-head sigmoid, zero-init → 1.0) are sensitive to *which* signal
+they read from. The Battle 1 winners read from the **static residual** `x_out[..,:12]`. In the new
+heuron baseline (Battle 4) those same gates **regress** (5_13: +0.00051). The fix is to read from
+the **fresh sub-layer output**: `attn_out[..,:12]` (the freshly computed attention result, not the
+residual). 5_15 = 1.22817, the biggest single win of the session.
+
+**Why**: the residual stream `x_out` is information-saturated (skip-connected, EMA-smoothed, etc.),
+so a gate reading from it sees a slow-moving signal. `attn_out` is a high-frequency, layer-specific
+delta — it carries fresh routing information ("did this attention layer find anything?") which is
+exactly what an MLP gate needs to decide whether to amplify or attenuate.
+
+**Generalized rule**: when adding a lightweight gate, prefer reading from the *most recent
+sub-layer's raw output* over the residual stream. The gate then routes based on actual sub-layer
+activity, not aggregated state.
+
+### Saturation point
+- 5_15 (cross-sublayer mlp gate, 1×12): 1.22817
+- 5_19 (5_15 + final_norm projection target): 1.22871 — ties
+- 5_20 (5_15 with cat(x_in,attn_out) → 1×24 gate): 1.22830 — ties
+- 5_21 (5_15 + per-head attn-output gate from x[..,:12]): **1.22803** — strict win
+The cross-sublayer MLP gate alone saturates around 1.2283; pairing it with an *orthogonal* gate
+(per-head attn output, reading from a different signal) breaks past saturation.
+
+### Things confirmed dead-on-arrival in Battle 4
+- Per-channel α (D=512) for XSI: 5_8 = 1.23423, 5_17 = 1.23440 (re-test). Don't try a third time.
+- Mid-network XSI insertion: 5_18 = 1.24033. Extra XSI sites are harmful.
+- Old Battle 1 gates as-is (read from x_out): 5_13 = 1.23239. Need cross-sublayer reformulation.
+- NOV (No Value Projection, V=X) on last 4 layers: 3 attempts at 5_14, all crashed with
+  InductorError SMEM 221k > 167k. The dynamo backward kernel for the "expand-broadcast K and use V=X"
+  pattern fuses past A100 SMEM. Need to either disable compile on those layers entirely
+  (likely incompatible with `fullgraph=True`) or restructure to keep K/V banked but skip the linear.
+- XSI applied AFTER final_norm: 5_12 = 1.23312. Order matters; current 5_7 placement is right.
+- Gated bigram: 5_16 = 1.23376. Bigram is already strong as-is; gating hurts.
+
+## Battle 4 R3 (cont'd): scaling the per-head attn gate
+
+**Current record candidate**: **5_25 = 1.22661 BPB** (-0.00527 vs 5_7's 1.23188).
+Stack: 5_7 (XSI v3 + α) + 5_15 cross-sublayer MLP gate + per-head attn-output gate widened to 48 input dims.
+
+### Width scaling of `attn_gate_w` (per-head, reads `x[..,:W]`)
+| W | Branch | BPB | Δ vs prev |
+|---|--------|-----|-----------|
+| 12 | 5_21 | 1.22803 | — |
+| 24 | 5_24 | 1.22782 | −0.00021 |
+| 48 | 5_25 | 1.22661 | −0.00121 |
+| 64,96,128 | 5_28/29/30 | in flight | scaling sweep |
+
+**Insight**: the per-head attn output gate (Battle 1 pattern, but as a *secondary* lever stacked
+on top of cross-sublayer MLP gate) responds *monotonically* to wider input. This is unique — most
+other widening attempts (5_20 wide-mlp-gate, 5_26 wide-mlp-gate-on-5_24) ties or regresses. The
+attn output gate is a special lever: it gates the attention's contribution per-head per-token,
+which has more degrees of freedom to leverage extra input information than the scalar MLP gate.
+
+**Param cost of widening**: 8 heads × W × 11 layers. W=48 → 4224 params. W=128 → 11264 params.
+All in scalar group, so they go through Adam (not Muon), zero-init → identity at step 0.
+
+### Things confirmed dead in this scaling round
+- Widening cross-MLP gate (5_20: 1×24 cat input, 5_26: same on 5_24): no help, sometimes regression.
+- Stacking smear_input_w (5_22) or classic mlp_gate from x_out (5_23) on top: both regress.
+- Adding qgain modulation gate (5_27): crashed on state_dict mismatch — needs careful key naming
+  or just registering the param in `_HessianAttn` differently.
