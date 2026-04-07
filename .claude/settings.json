@@ -1,0 +1,13 @@
+{
+    "sandbox": {
+        "enabled": true,
+        "autoAllowBashIfSandboxed": true
+    },
+    "permissions": {
+        "deny": [
+            "Read(~/.ssh/**)",
+            "Read(~/.bashrc)",
+            "Read(~/.bash_profile)"
+        ]
+    }
+}

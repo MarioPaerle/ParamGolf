@@ -108,7 +108,7 @@ class Hyperparameters:
     #   → start small+short, ramp seq_len first, then ramp batch.
     # LR auto-scaled by sqrt(cur_batch / final_batch) per stage (sqrt scaling rule).
     # If empty, uses fixed TRAIN_BATCH_TOKENS / TRAIN_SEQ_LEN throughout.
-    train_schedule = os.environ.get("TRAIN_SCHEDULE", "0:262144:128,500:262144:1024,1000:786432:2048,2000:786432:2048")
+    train_schedule = os.environ.get("TRAIN_SCHEDULE", "0:262144:2048,500:262144:2048,1000:524288:2048,2000:786432:2048")
     train_schedule_lr_scale = bool(int(os.environ.get("TRAIN_SCHEDULE_LR_SCALE", "1")))
 
 # --- Training schedule helpers ---
@@ -382,7 +382,7 @@ def eval_val(
     val_token_count = torch.zeros((), device=device, dtype=torch.float64)
     val_byte_count = torch.zeros((), device=device, dtype=torch.float64)
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch_seq_start in range(seq_start, seq_end, local_batch_seqs):
             batch_seq_end = min(batch_seq_start + local_batch_seqs, seq_end)
             raw_start = batch_seq_start * seq_len
@@ -1087,7 +1087,7 @@ def eval_val_sliding(
     token_count = torch.zeros((), device=device, dtype=torch.float64)
     byte_count = torch.zeros((), device=device, dtype=torch.float64)
     base_model.eval()
-    compiled_logits = torch.compile(base_model.forward_logits, dynamic=False, fullgraph=True)
+    compiled_logits = torch.compile(base_model.forward_logits, dynamic=True, fullgraph=True)
     with torch.inference_mode():
         for bi in range(0, len(my_windows), batch_seqs):
             batch_ws = my_windows[bi:bi + batch_seqs]

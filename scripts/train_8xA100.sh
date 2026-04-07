@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH -D /leonardo_work/IscrC_YENDRI/paerle/parameter-golf
-#SBATCH --job-name=pgolf-train-4x
+#SBATCH --job-name=pgolf-train-8x
 #SBATCH --output=./slurm/%x-%j.out
 #SBATCH --error=./slurm/%x-%j.err
 #SBATCH --time=00:30:00
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
-#SBATCH --nodes=1
 #SBATCH --mem=120G
 #SBATCH --partition=boost_usr_prod
 #SBATCH --gres=gpu:4
@@ -45,22 +45,32 @@ export VOCAB_SIZE="${VOCAB_SIZE:-1024}"
 # ---- Script Configuration ----
 export TRAIN_SCRIPT="${TRAIN_SCRIPT:-train_gpt.py}"
 SCRIPT_BASENAME=$(basename "${TRAIN_SCRIPT}" .py)
-export RUN_ID="${RUN_ID:-${SCRIPT_BASENAME}_4x}"
+export RUN_ID="${RUN_ID:-${SCRIPT_BASENAME}_8x}"
 
-# Override wallclock (slower than 8xH100, so give more time)
+# 8 GPUs matches the canonical challenge setup (8xH100)
 export MAX_WALLCLOCK_SECONDS="${MAX_WALLCLOCK_SECONDS:-600}"
 
 # Periodic validation logging
 export VAL_LOSS_EVERY="${VAL_LOSS_EVERY:-200}"
 
+# ---- Multi-node rendezvous via SLURM ----
+MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)
+MASTER_PORT=${MASTER_PORT:-29500}
+export NCCL_IB_DISABLE=0
+export NCCL_SOCKET_IFNAME=ib0
+
 # ---- Launch training ----
-# Prepend the code to the slurm output
 echo "--- BEGIN SOURCE CODE: ${TRAIN_SCRIPT} ---"
 cat "${TRAIN_SCRIPT}"
 echo "--- END SOURCE CODE: ${TRAIN_SCRIPT} ---"
 
-# We use --standalone because we are on a single node.
-# nproc_per_node=4 for 4 A100s.
-srun uv run torchrun --standalone --nproc_per_node=4 "${TRAIN_SCRIPT}"
+# 2 nodes x 4 GPUs = 8 GPUs total
+srun uv run torchrun \
+    --nnodes=2 \
+    --nproc_per_node=4 \
+    --rdzv_id="${SLURM_JOB_ID}" \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+    "${TRAIN_SCRIPT}"
 
-#  TRAIN_SCRIPT=train_gpt_skips_agents.py salloc -N 1 --ntasks-per-node=1 scripts/train_4xA100.sh
+#  TRAIN_SCRIPT=train_gpt_pe_r2.py sbatch scripts/train_8xA100.sh

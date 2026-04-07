@@ -1,18 +1,12 @@
 #!/bin/bash
-#SBATCH -D /leonardo_work/IscrC_YENDRI/paerle/parameter-golf
-#SBATCH --job-name=pgolf-train-4x
-#SBATCH --output=./slurm/%x-%j.out
-#SBATCH --error=./slurm/%x-%j.err
-#SBATCH --time=00:30:00
-#SBATCH --ntasks-per-node=1
-#SBATCH --nodes=1
-#SBATCH --mem=120G
-#SBATCH --partition=boost_usr_prod
-#SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task=32
-#SBATCH --account=IscrC_YENDRI
+# Interactive version of train_4xA100.sh — use with salloc:
+#   salloc --partition=boost_usr_prod --account=IscrC_YENDRI --qos=boost_qos_dbg \
+#     --gres=gpu:4 --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 \
+#     --mem=120G --time=00:30:00 bash scripts/train_4xA100_interactive.sh
 
 set -euo pipefail
+
+cd /leonardo_work/IscrC_YENDRI/paerle/parameter-golf
 
 module load python/3.11.7
 module load cuda/12.2
@@ -53,14 +47,14 @@ export MAX_WALLCLOCK_SECONDS="${MAX_WALLCLOCK_SECONDS:-600}"
 # Periodic validation logging
 export VAL_LOSS_EVERY="${VAL_LOSS_EVERY:-200}"
 
+# ---- Log file ----
+LOGFILE="./slurm/${RUN_ID}-$(date +%Y%m%d-%H%M%S).log"
+echo "Logging to: ${LOGFILE}"
+
 # ---- Launch training ----
-# Prepend the code to the slurm output
+# Prepend the code to the log
 echo "--- BEGIN SOURCE CODE: ${TRAIN_SCRIPT} ---"
 cat "${TRAIN_SCRIPT}"
 echo "--- END SOURCE CODE: ${TRAIN_SCRIPT} ---"
 
-# We use --standalone because we are on a single node.
-# nproc_per_node=4 for 4 A100s.
-srun uv run torchrun --standalone --nproc_per_node=4 "${TRAIN_SCRIPT}"
-
-#  TRAIN_SCRIPT=train_gpt_skips_agents.py salloc -N 1 --ntasks-per-node=1 scripts/train_4xA100.sh
+srun uv run torchrun --standalone --nproc_per_node=4 "${TRAIN_SCRIPT}" 2>&1 | tee -a "${LOGFILE}"

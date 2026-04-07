@@ -828,6 +828,7 @@ class Block(nn.Module):
             x_out = x_in + gate * (x_out - x_in)
             
         return x_out, raw_v
+
 class GPT(nn.Module):
     def __init__(
         self,
@@ -873,8 +874,7 @@ class GPT(nn.Module):
         self.tok_emb = nn.Embedding(vocab_size, model_dim)
         self.bigram = BigramHashEmbedding(bigram_vocab_size, bigram_dim, model_dim) if bigram_vocab_size > 0 else None
         
-        # Native SmearGate for experimental comparison
-        self.smear = SmearGate1(model_dim)
+        self.smear = SmearGate2(model_dim)
         
         self.num_encoder_layers = num_layers // 2
         self.num_decoder_layers = num_layers - self.num_encoder_layers
@@ -911,11 +911,9 @@ class GPT(nn.Module):
             ]
         )
         
-        # Injected Projections — one per layer output: x0*W1, x1*W2, x2*W3
+        # Injected Projections — all from x0, single fused linear
         if num_projections > 0:
-            self.input_proj_list = nn.ModuleList(
-                [CastedLinear(model_dim, model_dim, bias=False) for _ in range(num_projections)]
-            )
+            self.input_projections = CastedLinear(model_dim, model_dim * num_projections, bias=False)
             
         if rope_dims > 0:
             head_dim = model_dim // num_heads
@@ -994,10 +992,9 @@ class GPT(nn.Module):
         
         # Injected x0 and xss logic
         x0 = x
-        # Build projections incrementally: xss[0]=x0*W1, xss[1]=x1*W2, xss[2]=x2*W3
-        xss_list: list[Tensor] = []
+        xss = None
         if self.num_projections > 0:
-            xss_list.append(self.input_proj_list[0](x))  # x0*W1
+            xss = self.input_projections(x).chunk(self.num_projections, dim=-1)
 
         v0 = None
         skips: list[Tensor] = []
@@ -1005,8 +1002,7 @@ class GPT(nn.Module):
 
         for i in range(self.num_encoder_layers):
             ve = self._get_ve(i, input_ids, ve_cache)
-            # No projections for first 3 layers
-            use_xss = tuple(xss_list) if i >= 3 and len(xss_list) == self.num_projections else None
+            use_xss = xss if i > 4 else None
             x, raw_v = self.blocks[i](
                 x, x0, xss=use_xss,
                 q_w=self.qo_bank[i], k_w=self.kv_bank[i], v_w=self.kv_bank[n + i],
@@ -1015,20 +1011,14 @@ class GPT(nn.Module):
             )
             if v0 is None and raw_v is not None:
                 v0 = raw_v
-            # Accumulate per-layer projections: x1*W2 after layer 0, x2*W3 after layer 1
-            if self.num_projections > 0 and i + 1 < self.num_projections:
-                xss_list.append(self.input_proj_list[i + 1](x))
             skips.append(x)
 
-        xss = tuple(xss_list) if len(xss_list) == self.num_projections else None
         for i in range(self.num_decoder_layers):
             bi = self.num_encoder_layers + i
             if skips:
                 x = x + self.skip_weights[i].to(dtype=x.dtype)[None, None, :] * skips.pop()
             ve = self._get_ve(bi, input_ids, ve_cache)
-            use_xss = xss if i < 4 else None
-            if i >= 4:
-                xss = None
+            use_xss = xss
             x, _ = self.blocks[bi](
                 x, x0, xss=use_xss,
                 q_w=self.qo_bank[bi], k_w=self.kv_bank[bi], v_w=self.kv_bank[n + bi],
@@ -1079,11 +1069,10 @@ class GPT(nn.Module):
         
         x = self.smear(x)
 
-        # Injected x0 and xss logic — projections: x0*W1, x1*W2, x2*W3
         x0 = x
-        xss_list: list[Tensor] = []
+        xss = None
         if self.num_projections > 0:
-            xss_list.append(self.input_proj_list[0](x))  # x0*W1
+            xss = self.input_projections(x).chunk(self.num_projections, dim=-1)
 
         v0 = None
         skips: list[Tensor] = []
@@ -1091,7 +1080,7 @@ class GPT(nn.Module):
 
         for i in range(self.num_encoder_layers):
             ve = self._get_ve(i, input_ids, ve_cache)
-            use_xss = tuple(xss_list) if i >= 3 and len(xss_list) == self.num_projections else None
+            use_xss = xss if i > 4 else None
             x, raw_v = self.blocks[i](
                 x, x0, xss=use_xss,
                 q_w=self.qo_bank[i], k_w=self.kv_bank[i], v_w=self.kv_bank[n + i],
@@ -1100,12 +1089,8 @@ class GPT(nn.Module):
             )
             if v0 is None and raw_v is not None:
                 v0 = raw_v
-            # Accumulate per-layer projections: x1*W2 after layer 0, x2*W3 after layer 1
-            if self.num_projections > 0 and i + 1 < self.num_projections:
-                xss_list.append(self.input_proj_list[i + 1](x))
             skips.append(x)
 
-        xss = tuple(xss_list) if len(xss_list) == self.num_projections else None
         for i in range(self.num_decoder_layers):
             bi = self.num_encoder_layers + i
             if skips:
@@ -1619,7 +1604,6 @@ def main() -> None:
     # No DDP -- Parallel Muon handles bank grad communication via reduce-scatter,
     # and non-bank grads are manually all-reduced before Adam steps.
     compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True)
-    #compiled_model = base_model
     model = compiled_model
 
     # Optimizer split:

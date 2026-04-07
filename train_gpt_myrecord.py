@@ -827,6 +827,7 @@ class Block(nn.Module):
             x_out = x_in + gate * (x_out - x_in)
             
         return x_out, raw_v
+
 class GPT(nn.Module):
     def __init__(
         self,

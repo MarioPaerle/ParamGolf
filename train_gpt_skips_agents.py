@@ -24,6 +24,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
+from Smears import SmearGate, Smear3Gate, Smear4Gate, NanoSmearGate, NanoSmear3Gate, NanoSmear4Gate
 # from flash_attn_interface import flash_attn_func as flash_attn_3_func
 class Hyperparameters:
     data_path = os.environ.get("DATA_PATH", "./data/datasets/fineweb10B_sp1024")
@@ -101,6 +102,10 @@ class Hyperparameters:
     ttt_momentum = float(os.environ.get("TTT_MOMENTUM", 0.9))
     ttt_batch_seqs = int(os.environ.get("TTT_BATCH_SEQS", 32))
     ttt_grad_clip = float(os.environ.get("TTT_GRAD_CLIP", 1.0))
+    num_projections = int(os.environ.get("num_projections", 3))
+    projections_dim = int(os.environ.get("projections_dim", 512))
+    smear_gate_dim = int(os.environ.get("smear_gate_dim", 512))
+
 
 # --- Batched Newton-Schulz orthogonalization ---
 
@@ -683,10 +688,11 @@ class CausalSelfAttention(nn.Module):
         y = y.reshape(bsz, seqlen, dim)
         return F.linear(y, out_w.to(x.dtype)), raw_v
 
-class SmearGate(nn.Module):
+class SmearGate1(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
         self.gate = nn.Parameter(torch.zeros(dim, dtype=torch.float32))
+    
     def forward(self, x: Tensor) -> Tensor:
         g = torch.sigmoid(self.gate.to(dtype=x.dtype))[None, None, :]
         x_prev = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)
@@ -755,6 +761,7 @@ class Block(nn.Module):
         dtg: bool = False,
         gated_attention: bool = False,
         value_residual: bool = False,
+        projections_dim: int = 128
     ):
         super().__init__()
         self.attn_norm = RMSNorm()
@@ -768,11 +775,14 @@ class Block(nn.Module):
         
         self.attn_scale = nn.Parameter(torch.ones(dim, dtype=torch.float32))
         self.mlp_scale = nn.Parameter(torch.ones(dim, dtype=torch.float32))
-
         # EXACT logic from Snippet 1: Initialize as 1D scalar weights
         mix_init = torch.zeros(1 + num_skips)
         mix_init[0] = 1.0
         self.resid_mix = nn.Parameter(mix_init.float())
+        self.use_projection = False
+        if dim != projections_dim:
+            self.use_projection = True
+            self.proj_skip = CastedLinear(projections_dim, dim, bias=False)
         
         self.ln_scale_factor = 1.0 / math.sqrt(layer_idx + 1) if ln_scale else 1.0
         
@@ -809,7 +819,10 @@ class Block(nn.Module):
         if xss is not None:
             for p in range(len(xss)):
                 m_p = mix[2 + p]
-                x_in = x_in + m_p * xss[p]
+                if self.use_projection:
+                    x_in = x_in + self.proj_skip(m_p * xss[p])
+                else:
+                    x_in = x_in + m_p * xss[p]
                 
         attn_out, raw_v = self.attn(
             self.attn_norm(x_in) * self.ln_scale_factor, 
@@ -826,6 +839,7 @@ class Block(nn.Module):
             x_out = x_in + gate * (x_out - x_in)
             
         return x_out, raw_v
+
 class GPT(nn.Module):
     def __init__(
         self,
@@ -854,6 +868,8 @@ class GPT(nn.Module):
         ve_layers: str = "9,10",
         gated_attention: bool = False,
         value_residual: bool = False,
+        projections_dim: int = 128,
+        smear_gate_dim:int = 12
     ):
         super().__init__()
         self._ve_target_dim = num_kv_heads * (model_dim // num_heads)
@@ -871,8 +887,7 @@ class GPT(nn.Module):
         self.tok_emb = nn.Embedding(vocab_size, model_dim)
         self.bigram = BigramHashEmbedding(bigram_vocab_size, bigram_dim, model_dim) if bigram_vocab_size > 0 else None
         
-        # Restored precisely as you wrote it
-        self.smear = SmearGate(model_dim)
+        self.smear = SmearGate1(model_dim)
         
         self.num_encoder_layers = num_layers // 2
         self.num_decoder_layers = num_layers - self.num_encoder_layers
@@ -882,13 +897,12 @@ class GPT(nn.Module):
         head_dim = model_dim // num_heads
         kv_dim = num_kv_heads * head_dim
         mlp_dim = int(mlp_mult * model_dim)
-        self.num_layers = num_layers
-        
+        self.num_layers = num_layers    
         self.qo_bank = nn.Parameter(torch.empty(2 * num_layers, model_dim, model_dim))
         self.kv_bank = nn.Parameter(torch.empty(2 * num_layers, kv_dim, model_dim))
         self.mlp_up_bank = nn.Parameter(torch.empty(num_layers, mlp_dim, model_dim))
         self.mlp_down_bank = nn.Parameter(torch.empty(num_layers, model_dim, mlp_dim))
-        
+        self.projections_dim = projections_dim
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -904,6 +918,7 @@ class GPT(nn.Module):
                     dtg=dtg,
                     gated_attention=gated_attention,
                     value_residual=value_residual,
+                    projections_dim=projections_dim
                 )
                 for i in range(num_layers)
             ]
@@ -911,7 +926,7 @@ class GPT(nn.Module):
         
         # Injected Projections
         if num_projections > 0:
-            self.input_projections = CastedLinear(model_dim, model_dim * num_projections, bias=False)
+            self.input_projections = CastedLinear(model_dim, projections_dim * num_projections, bias=False)
             
         if rope_dims > 0:
             head_dim = model_dim // num_heads
@@ -1112,6 +1127,8 @@ class GPT(nn.Module):
             logits_proj = self.lm_head(x)
             
         return self.logit_softcap * torch.tanh(logits_proj / self.logit_softcap)
+
+
 def eval_val_sliding(
     args: Hyperparameters,
     base_model: nn.Module,
@@ -1591,7 +1608,9 @@ def main() -> None:
         ve_layers=args.ve_layers,
         gated_attention=args.gated_attention,
         value_residual=args.value_residual,
-        num_projections=3
+        num_projections=args.num_projections, 
+        projections_dim=args.projections_dim,
+        smear_gate_dim=args.smear_gate_dim
     ).to(device).bfloat16()
     # Banks stay FP32 (like CastedLinear weights), cast to BF16 in forward
     base_model.qo_bank.data = base_model.qo_bank.data.float()
@@ -1602,9 +1621,9 @@ def main() -> None:
         if isinstance(module, CastedLinear):
             module.float()
     restore_low_dim_params_to_fp32(base_model)
-    # No DDP -- Parallel Muon handles bank grad communication via reduce-scatter,
-    # and non-bank grads are manually all-reduced before Adam steps.
+
     compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True)
+    # compiled_model = base_model
     model = compiled_model
 
     # Optimizer split:
@@ -1624,7 +1643,8 @@ def main() -> None:
     ]
     if base_model.skip_weights.numel() > 0:
         scalar_params.append(base_model.skip_weights)
-    scalar_params.append(base_model.smear.gate)
+    if hasattr(base_model.smear, "gate"):
+        scalar_params.append(base_model.smear.gate)
     if base_model.bigram is not None:
         scalar_params.append(base_model.bigram.scale)
     token_lr = args.tied_embed_lr if args.tie_embeddings else args.embed_lr
@@ -1936,8 +1956,8 @@ def main() -> None:
         rope_dims=args.rope_dims, ln_scale=args.ln_scale, dtg=args.dtg_enabled,
         ve_enabled=args.ve_enabled, ve_dim=args.ve_dim, ve_layers=args.ve_layers,
         gated_attention=args.gated_attention, value_residual=args.value_residual,
-        num_projections=3
-
+        num_projections=args.num_projections, projections_dim=args.projections_dim, 
+        smear_gate_dim=args.smear_gate_dim
     ).to(device).bfloat16()
     eval_model.qo_bank.data = eval_model.qo_bank.data.float()
     eval_model.kv_bank.data = eval_model.kv_bank.data.float()
